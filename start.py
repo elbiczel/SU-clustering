@@ -1,29 +1,30 @@
 #!/usr/bin/python
 from PIL import Image, ImageOps, ImageFilter
+from numpy import linalg, array
 import math
+import random
 
 images = []
 clusters = []
 _bord = 2
 _blurs = 2
 _sizeThreshold = 2
-_sizeFactor = 0.5
+_sizeFactor = 0.
 _threshold = 1.5
 _maxDiff = 1000000
 
-class MyImage:
-	def __init__(self, img, name):
-		self.img = img.copy()
-		self.name = name
-	def prepare(self):
-		src = ImageOps.expand(self.img, border=_bord, fill='white')
-		src = Image.eval(src, lambda pix: 255*(pix>179))
-		orig = src
-		for i in xrange(_blurs):
-			src = src.filter(ImageFilter.BLUR)
-		src = Image.blend(orig, src, 0.75)
-		self.img = src
-		
+def getNewSize(oldSize):
+	newHeight = 15
+	if (oldSize[1] > 15):
+		newHeight = 25
+	elif (oldSize[1] < 5):
+		newHeight = 5
+	newWidth = 15
+	if (oldSize[0] > 15):
+		newWidth = 25
+	elif (oldSize[0] < 5):
+		newWidth = 5
+	return (newWidth, newHeight)
 
 def _RGBToGray(tuple):
 	res = 0
@@ -32,33 +33,52 @@ def _RGBToGray(tuple):
 	res = 1.0 * res / (255*255*255)
 	return res
 	
-def distance(x, y):
-	X = images[x].img
-	Y = images[y].img
-	if math.fabs(Y.size[0] - X.size[0]) > _sizeThreshold or math.fabs(Y.size[1] - X.size[1]) > _sizeThreshold:
-		return _maxDiff
-	size_diff = math.fabs(Y.size[0] * Y.size[1] - X.size[0] * X.size[1])
-	if X.size > Y.size:
-		X = X.resize(Y.size, Image.ANTIALIAS)
-	elif Y.size > X.size:
-		Y = Y.resize(X.size, Image.ANTIALIAS)
-	seqX = pixelSeq(X)
-	seqY = pixelSeq(Y)
-	res = 0.
-	size = len(seqX)
-	for i in xrange(size):
-		tmp = seqX[i] - seqY[i]
-		res = res + tmp * tmp
-	return (math.sqrt(res) + _sizeFactor * size_diff)
+
+class MyImage:
+	def __init__(self, img, name):
+		self.img = img.copy()
+		self.name = name
+		self.distances = {name: 0.}
+	
+	def prepare(self):
+		self.origSize = self.img.size
+		src = self.img.resize(getNewSize(self.origSize), Image.BICUBIC)
+		src = ImageOps.expand(src, border=_bord, fill='white')
+		src = Image.eval(src, lambda pix: 255*(pix>179))
+		orig = src
+		for i in xrange(_blurs):
+			src = src.filter(ImageFilter.BLUR)
+		src = Image.blend(orig, src, 0.75)
+		self.img = src
+		self.arr = array(map(_RGBToGray, self.img.getdata()))
+	
+	def distance(self, other):
+		if other.name in self.distances:
+			return self.distances[other.name]	
+		if (math.fabs(other.origSize[0] - self.origSize[0]) > _sizeThreshold or math.fabs(other.origSize[1] - self.origSize[1]) > _sizeThreshold) or (self.arr.size != other.arr.size):
+			result = _maxDiff
+		else:
+			size_diff = math.fabs(other.origSize[0] * other.origSize[1] - self.origSize[0] * self.origSize[1])
+			result = (linalg.norm(self.arr - other.arr) + _sizeFactor * size_diff)
+		self.distances[other.name] = result
+		other.distances[self.name] = result
+		return result
+	
+	
+
+
 	
 def inCluster(imgNo, clusterNo):
-	for repNo in clusters[clusterNo]:
-		if distance(repNo, imgNo) < _threshold:
+	clusterSize = len(clusters[clusterNo])
+	if (clusterSize) > 15:
+		repNoSeq = random.sample(clusters[clusterNo], 15)
+	else:
+		repNoSeq = clusters[clusterNo]
+	for repNo in repNoSeq:
+		if images[repNo].distance(images[imgNo]) < _threshold:
 			return True
 	return False
 
-def pixelSeq(img):
-	return map(_RGBToGray, img.getdata())
 	
 def cluster():
 	for x in xrange(len(images)):
@@ -70,16 +90,6 @@ def cluster():
 		if not added:
 			clusters.append([x])
 
-
-def blur_image(x):
-	src = ImageOps.expand(images[x].img, border=_bord, fill='white')
-	src = Image.eval(src, lambda pix: 255*(pix>179))
-	orig = src
-	for i in xrange(_blurs):
-		src = src.filter(ImageFilter.BLUR)
-	src = Image.blend(orig, src, 0.75)
-	images[x].img = src
-
 if __name__ == '__main__':
     import sys
     if len(sys.argv) not in [2, 3]:
@@ -88,6 +98,7 @@ if __name__ == '__main__':
     out_file_name = sys.argv[2] if len(sys.argv) == 3 else 'result'
     file_name = sys.argv[1]
     with open(file_name, 'r') as f:
+		random.seed()
 		for line in f:
 			if line[-1] == '\n':
 				line = line[0:-1] 
