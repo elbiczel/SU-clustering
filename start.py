@@ -46,14 +46,14 @@ class MyImage:
 	def prepare(self):
 		self.origSize = self.img.size
 		src = self.img.resize(getNewSize(self.origSize), Image.BICUBIC)
+		del self.img
 		src = ImageOps.expand(src, border=_bord, fill='white')
 		src = Image.eval(src, lambda pix: 255*(pix>179))
 		orig = src
 		for i in xrange(_blurs):
 			src = src.filter(ImageFilter.BLUR)
 		src = Image.blend(orig, src, 0.75)
-		self.img = src
-		self.arr = array(map(_RGBToGray, self.img.getdata()))
+		self.arr = array(map(_RGBToGray, src.getdata()))
 	
 	def distance(self, other):	
 		if other.name in self.distances:
